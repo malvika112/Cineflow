@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinemaFlo — Order status</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Order status</h1>
+  <span class="seat-badge" id="seat-badge">Seat —</span>
+</header>
+
+<main>
+  <div class="order-card">
+    <div class="status-track" id="status-track"></div>
+    <div id="order-lines"></div>
+    <div id="order-total" class="summary-row total"></div>
+  </div>
+  <a class="btn-secondary" href="index.html" style="display:block; text-align:center; text-decoration:none;">Order more</a>
+</main>
+
+<script src="app.js"></script>
+<script>
+const STEPS = [
+  { key: 'placed', label: 'Placed' },
+  { key: 'preparing', label: 'Preparing' },
+  { key: 'ready', label: 'Ready' },
+  { key: 'delivered', label: 'Delivered' },
+];
+
+function getOrderId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('id');
+}
+
+function renderStatus(order) {
+  const trackEl = document.getElementById('status-track');
+  const currentIdx = STEPS.findIndex(s => s.key === order.status);
+
+  if (order.status === 'cancelled') {
+    trackEl.innerHTML = `<div class="empty-state" style="color:var(--danger)">This order was cancelled.</div>`;
+  } else {
+    trackEl.innerHTML = STEPS.map((step, i) => {
+      let cls = '';
+      if (i < currentIdx) cls = 'done';
+      else if (i === currentIdx) cls = 'active';
+      const icon = i < currentIdx ? '&#10003;' : (i + 1);
+      return `
+        <div class="status-step ${cls}">
+          <div class="status-dot">${cls === 'done' ? '&#10003;' : i + 1}</div>
+          <span class="label">${step.label}</span>
+        </div>`;
+    }).join('');
+  }
+
+  const linesHtml = order.lines.map(l => `
+    <div class="cart-line">
+      <div>
+        <div class="item-name">${l.item_name}</div>
+        <div class="item-desc">${l.quantity} &times; ${CinemaFlo.formatRupees(l.unit_price_paise)}</div>
+      </div>
+      <div class="item-price">${CinemaFlo.formatRupees(l.subtotal_paise)}</div>
+    </div>`).join('');
+  document.getElementById('order-lines').innerHTML = linesHtml;
+  document.getElementById('order-total').innerHTML =
+    `<span>Total paid</span><span>${CinemaFlo.formatRupees(order.total_paise)}</span>`;
+}
+
+async function poll() {
+  const orderId = getOrderId();
+  if (!orderId) return;
+  try {
+    const order = await CinemaFlo.getOrder(orderId);
+    renderStatus(order);
+    if (order.status !== 'delivered' && order.status !== 'cancelled') {
+      setTimeout(poll, 5000);
+    }
+  } catch (e) {
+    CinemaFlo.toast('Could not load order status', true);
+  }
+}
+
+async function init() {
+  const session = CinemaFlo.getSession();
+  if (session) document.getElementById('seat-badge').textContent = `Seat ${session.seat_number}`;
+
+  // Save this order ID to localStorage as a backup —
+  // catches the case where checkout.html redirect happened before the save ran.
+  const orderId = getOrderId();
+  if (orderId) {
+    const existing = JSON.parse(localStorage.getItem('cf_my_orders') || '[]');
+    if (!existing.includes(orderId)) {
+      existing.unshift(orderId);
+      localStorage.setItem('cf_my_orders', JSON.stringify(existing.slice(0, 10)));
+      console.log('[order_status] saved order ID to cf_my_orders:', orderId);
+    }
+  }
+
+  await poll();
+}
+
+init();
+</script>
+</body>
+</html>

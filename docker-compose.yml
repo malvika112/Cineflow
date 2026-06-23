@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      CINEMAFLO_DB_PATH: /app/db/cinemaflo.db
+      CINEMAFLO_ADMIN_TOKEN: admin-dev-token
+    volumes:
+      - ./db:/app/db   # persist DB across restarts

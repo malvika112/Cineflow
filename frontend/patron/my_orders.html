@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinemaFlo — My Orders</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>My orders</h1>
+  <span class="seat-badge" id="seat-badge">Seat —</span>
+</header>
+
+<main>
+  <a class="back-link" href="index.html">&larr; Back to menu</a>
+  <div id="orders-container">
+    <div class="empty-state">Loading your orders&hellip;</div>
+  </div>
+</main>
+
+<script src="app.js"></script>
+<script>
+const STATUS_LABELS = {
+  placed:    { label: 'Order placed',   color: '#d4a13b' },
+  preparing: { label: 'Being prepared', color: '#8b8bd8' },
+  ready:     { label: 'Ready!',         color: '#4ba36a' },
+  delivered: { label: 'Delivered',      color: '#9b9aa3' },
+  cancelled: { label: 'Cancelled',      color: '#d8473f' },
+};
+
+function renderOrders(orders) {
+  if (orders.length === 0) {
+    document.getElementById('orders-container').innerHTML =
+      '<div class="empty-state">No orders yet.<br>Order something from the menu!</div>';
+    return;
+  }
+
+  const html = orders.map(order => {
+    const st = STATUS_LABELS[order.status] || { label: order.status, color: '#9b9aa3' };
+    const itemsSummary = order.lines.map(l => `${l.quantity}× ${l.item_name}`).join(', ');
+    const steps = ['placed','preparing','ready','delivered'];
+    const currentIdx = steps.indexOf(order.status);
+
+    return `
+      <div class="order-card" onclick="window.location.href='order_status.html?id=${order.id}'"
+           style="cursor:pointer">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px">
+          <div>
+            <div style="font-size:13px; color:var(--text-dim); margin-bottom:4px">Seat ${order.seat_number}</div>
+            <div style="font-size:14px; font-weight:500">${itemsSummary}</div>
+          </div>
+          <div style="text-align:right; flex-shrink:0; margin-left:12px">
+            <div style="font-size:15px; font-weight:700; color:var(--accent)">${CinemaFlo.formatRupees(order.total_paise)}</div>
+            <div style="font-size:12px; color:${st.color}; font-weight:600; margin-top:4px">${st.label}</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:4px; margin-top:8px">
+          ${steps.map((step, i) => {
+            const done = i <= currentIdx && order.status !== 'cancelled';
+            return `<div style="flex:1;height:3px;border-radius:2px;background:${done ? 'var(--accent)' : 'var(--border)'}"></div>`;
+          }).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Tap to view details &rarr;</div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('orders-container').innerHTML = html;
+}
+
+async function loadOrders() {
+  // Read saved order IDs from localStorage
+  let orderIds = JSON.parse(localStorage.getItem('cf_my_orders') || '[]');
+
+  // Debug: log what we find
+  console.log('[my_orders] localStorage cf_my_orders:', orderIds);
+
+  if (orderIds.length === 0) {
+    document.getElementById('orders-container').innerHTML =
+      `<div class="empty-state">No orders found.<br>
+       <small style="color:var(--text-dim)">Orders appear here after checkout.</small>
+       </div>`;
+    return;
+  }
+
+  // Fetch all orders in parallel
+  const results = await Promise.allSettled(
+    orderIds.map(id => CinemaFlo.getOrder(id))
+  );
+
+  const orders = results
+    .filter(r => r.status === 'fulfilled')
+    .map(r => r.value);
+
+  renderOrders(orders);
+
+  // Keep polling so statuses update live
+  setTimeout(loadOrders, 5000);
+}
+
+async function init() {
+  const session = CinemaFlo.getSession();
+  if (session) {
+    document.getElementById('seat-badge').textContent = `Seat ${session.seat_number}`;
+  }
+  await loadOrders();
+}
+
+init();
+</script>
+</body>
+</html>

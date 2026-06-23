@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinemaFlo Admin — Menu</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>CinemaFlo Admin</h1>
+  <span style="font-size:12px; color:var(--text-dim)">Token-protected</span>
+</header>
+
+<nav class="tabs">
+  <a href="index.html" class="active">Menu &amp; stock</a>
+  <a href="orders.html">Orders</a>
+  <a href="offers.html">Offers</a>
+</nav>
+
+<main>
+  <div class="card">
+    <h3 style="margin-bottom:14px; font-size:15px;">Add new item</h3>
+    <div class="form-row"><label>Name</label><input class="text-input" id="new-name" placeholder="Large Popcorn"></div>
+    <div class="form-row"><label>Description</label><input class="text-input" id="new-desc" placeholder="Classic salted"></div>
+    <div class="form-row"><label>Price (paise)</label><input class="text-input" id="new-price" placeholder="25000" type="number"></div>
+    <div class="form-row"><label>Category</label><input class="text-input" id="new-category" placeholder="snacks"></div>
+    <div class="form-row"><label>Initial stock</label><input class="text-input" id="new-qty" placeholder="40" type="number"></div>
+    <button onclick="createItem()">Create item</button>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:14px; font-size:15px;">Menu items</h3>
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Price</th><th>Stock</th><th>Status</th><th>Restock</th><th></th></tr>
+      </thead>
+      <tbody id="menu-rows"></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="app.js"></script>
+<script>
+async function loadMenu() {
+  const items = await Admin.req('/admin/menu');
+  const rows = items.map(item => `
+    <tr>
+      <td>${item.name}<div style="font-size:11px;color:var(--text-dim)">${item.description}</div></td>
+      <td>${Admin.formatRupees(item.price_paise)}</td>
+      <td>${item.quantity_available}</td>
+      <td>
+        <span class="badge ${item.is_active ? 'active-yes' : 'active-no'}">${item.is_active ? 'Active' : 'Inactive'}</span>
+        ${item.is_sold_out ? '<span class="badge sold-out">Sold out</span>' : ''}
+      </td>
+      <td>
+        <div class="action-cell">
+          <input type="number" class="num-input" id="restock-${item.id}" placeholder="+qty">
+          <button class="secondary" onclick="restock(${item.id})">Add</button>
+        </div>
+      </td>
+      <td>
+        <button class="secondary" onclick="toggleActive(${item.id}, ${item.is_active})">
+          ${item.is_active ? 'Deactivate' : 'Activate'}
+        </button>
+      </td>
+    </tr>`).join('');
+  document.getElementById('menu-rows').innerHTML = rows || '<tr><td colspan="6" class="empty-state">No items yet</td></tr>';
+}
+
+async function createItem() {
+  const name = document.getElementById('new-name').value.trim();
+  const description = document.getElementById('new-desc').value.trim();
+  const price_paise = parseInt(document.getElementById('new-price').value);
+  const category = document.getElementById('new-category').value.trim() || 'general';
+  const initial_quantity = parseInt(document.getElementById('new-qty').value) || 0;
+
+  if (!name || !price_paise) {
+    alert('Name and price are required');
+    return;
+  }
+
+  await Admin.req('/admin/menu', {
+    method: 'POST',
+    body: JSON.stringify({ name, description, price_paise, category, initial_quantity }),
+  });
+  document.getElementById('new-name').value = '';
+  document.getElementById('new-desc').value = '';
+  document.getElementById('new-price').value = '';
+  document.getElementById('new-category').value = '';
+  document.getElementById('new-qty').value = '';
+  loadMenu();
+}
+
+async function restock(itemId) {
+  const input = document.getElementById(`restock-${itemId}`);
+  const delta = parseInt(input.value);
+  if (!delta || delta <= 0) {
+    alert('Enter a positive quantity to add');
+    return;
+  }
+  await Admin.req(`/admin/menu/${itemId}/restock`, {
+    method: 'POST',
+    body: JSON.stringify({ quantity_delta: delta }),
+  });
+  input.value = '';
+  loadMenu();
+}
+
+async function toggleActive(itemId, currentlyActive) {
+  await Admin.req(`/admin/menu/${itemId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ is_active: !currentlyActive }),
+  });
+  loadMenu();
+}
+
+loadMenu();
+setInterval(loadMenu, 8000);
+</script>
+</body>
+</html>

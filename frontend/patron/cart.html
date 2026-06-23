@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinemaFlo — Cart</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Your cart</h1>
+  <span class="seat-badge" id="seat-badge">Seat —</span>
+</header>
+
+<main>
+  <a class="back-link" href="index.html">&larr; Back to menu</a>
+  <div id="cart-lines"></div>
+
+  <div class="offer-row">
+    <input type="text" class="text-input" id="offer-input" placeholder="Offer code (optional)">
+    <button onclick="applyOffer()">Apply</button>
+  </div>
+
+  <div id="summary"></div>
+
+  <button class="btn-primary" id="checkout-btn" onclick="goToCheckout()">Proceed to checkout</button>
+</main>
+
+<script src="app.js"></script>
+<script>
+let menu = [];
+let cart = CinemaFlo.getCart();
+let appliedOfferCode = null;
+let lastValidation = null;
+
+function renderLines() {
+  const container = document.getElementById('cart-lines');
+  const entries = Object.entries(cart);
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="empty-state">Your cart is empty.</div>';
+    document.getElementById('checkout-btn').disabled = true;
+    return;
+  }
+  let html = '';
+  for (const [id, qty] of entries) {
+    const item = menu.find(i => i.id === parseInt(id));
+    if (!item) continue;
+    html += `
+      <div class="cart-line">
+        <div>
+          <div class="item-name">${item.name}</div>
+          <div class="item-desc">${qty} &times; ${CinemaFlo.formatRupees(item.price_paise)}</div>
+        </div>
+        <div class="qty-control">
+          <button class="qty-btn" onclick="decItem(${item.id})">&minus;</button>
+          <span class="qty-value">${qty}</span>
+          <button class="qty-btn" onclick="incItem(${item.id})">+</button>
+        </div>
+      </div>`;
+  }
+  container.innerHTML = html;
+}
+
+function incItem(itemId) {
+  const item = menu.find(i => i.id === itemId);
+  const current = cart[itemId] || 0;
+  if (current + 1 > item.quantity_available) {
+    CinemaFlo.toast('Not enough stock left', true);
+    return;
+  }
+  cart[itemId] = current + 1;
+  persistAndRefresh();
+}
+
+function decItem(itemId) {
+  if (cart[itemId] > 1) cart[itemId]--; else delete cart[itemId];
+  persistAndRefresh();
+}
+
+function persistAndRefresh() {
+  CinemaFlo.setCart(cart);
+  renderLines();
+  validate();
+}
+
+function buildItemsPayload() {
+  return Object.entries(cart).map(([id, qty]) => ({ item_id: parseInt(id), quantity: qty }));
+}
+
+async function validate() {
+  const items = buildItemsPayload();
+  if (items.length === 0) {
+    document.getElementById('summary').innerHTML = '';
+    return;
+  }
+  try {
+    lastValidation = await CinemaFlo.validateCart(items, appliedOfferCode);
+    renderSummary();
+  } catch (e) {
+    CinemaFlo.toast('Could not validate cart', true);
+  }
+}
+
+function renderSummary() {
+  if (!lastValidation) return;
+  const v = lastValidation;
+  let html = `<div class="summary-row"><span>Subtotal</span><span>${CinemaFlo.formatRupees(v.subtotal_paise)}</span></div>`;
+  if (v.discount_paise > 0) {
+    html += `<div class="summary-row"><span>Discount</span><span>&minus;${CinemaFlo.formatRupees(v.discount_paise)}</span></div>`;
+  }
+  html += `<div class="summary-row total"><span>Total</span><span>${CinemaFlo.formatRupees(v.total_paise)}</span></div>`;
+  document.getElementById('summary').innerHTML = html;
+  document.getElementById('checkout-btn').disabled = false;
+
+  if (v.rejected_lines && v.rejected_lines.length > 0) {
+    CinemaFlo.toast('Some items in your cart are no longer available', true);
+  }
+}
+
+function applyOffer() {
+  const code = document.getElementById('offer-input').value.trim();
+  appliedOfferCode = code || null;
+  validate();
+}
+
+async function goToCheckout() {
+  // FIX: Seat number is collected here, right before the patron places their
+  // order — not at menu load. This means:
+  //   1. Every order gets a fresh seat prompt (no stale session from a previous tester).
+  //   2. The patron knows their seat when it actually matters (at checkout).
+  //   3. Clearing the old session first ensures we never reuse a stale one.
+
+  // Clear any existing session so we always ask fresh.
+  CinemaFlo.setSession(null);
+
+  // Ask for seat number now.
+  const seat = prompt('Enter your seat number (e.g. A12):', '') || 'A12';
+
+  // Create a new session with the seat they just entered.
+  const session = await CinemaFlo.createSession(seat, 'screen-1');
+  CinemaFlo.setSession(session);
+
+  // Update badge to confirm to the patron what seat was recorded.
+  document.getElementById('seat-badge').textContent = `Seat ${session.seat_number}`;
+
+  // Carry offer code to checkout page via sessionStorage.
+  if (appliedOfferCode) {
+    sessionStorage.setItem('cf_offer_code', appliedOfferCode);
+  } else {
+    sessionStorage.removeItem('cf_offer_code');
+  }
+
+  window.location.href = 'checkout.html';
+}
+
+async function init() {
+  // FIX: No longer redirect to index.html if session is missing —
+  // session is created at checkout now, not at page load.
+  // We just show "Seat —" in the badge until they proceed to checkout.
+  const session = CinemaFlo.getSession();
+  if (session) {
+    // Show seat if mid-flow (came back from checkout page, etc.)
+    document.getElementById('seat-badge').textContent = `Seat ${session.seat_number}`;
+  }
+
+  menu = await CinemaFlo.getMenu();
+  renderLines();
+  await validate();
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinemaFlo — Menu</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Screen 1 &middot; 7:30 PM</h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a href="my_orders.html" style="font-size:12px;color:var(--text-dim);text-decoration:none;border:1px solid var(--border);padding:4px 10px;border-radius:20px;">My orders</a>
+    <span class="seat-badge" id="seat-badge">Seat —</span>
+  </div>
+</header>
+
+<main id="menu-container">
+  <div class="empty-state">Loading menu&hellip;</div>
+</main>
+
+<div class="cart-bar hidden" id="cart-bar" onclick="window.location.href='cart.html'">
+  <span class="count" id="cart-count">0 items</span>
+  <span class="total" id="cart-total">&#8377;0.00</span>
+</div>
+
+<script src="app.js"></script>
+<script>
+let menu = [];
+let cart = CinemaFlo.getCart();
+
+async function ensureSession() {
+  // FIX: Don't ask for seat number here anymore.
+  // Seat is collected at checkout (cart.html → checkout.html).
+  // Session is created fresh per order, not persisted across visits.
+  const session = CinemaFlo.getSession();
+  if (session) {
+    // Show seat if a session already exists (e.g. patron came back to menu
+    // mid-flow after adding items to cart).
+    document.getElementById('seat-badge').textContent = `Seat ${session.seat_number}`;
+  }
+  // Otherwise, badge stays "Seat —" until they reach checkout.
+}
+
+function renderMenu() {
+  const container = document.getElementById('menu-container');
+  if (menu.length === 0) {
+    container.innerHTML = '<div class="empty-state">No items available right now.</div>';
+    return;
+  }
+
+  const categories = [...new Set(menu.map(i => i.category))];
+  let html = '';
+  for (const cat of categories) {
+    html += `<div class="category-label">${cat}</div>`;
+    for (const item of menu.filter(i => i.category === cat)) {
+      const qty = cart[item.id] || 0;
+      const soldOut = !item.is_orderable;
+      html += `
+        <div class="item-card ${soldOut ? 'sold-out' : ''}">
+          <div class="item-info">
+            <div class="item-name">${item.name}</div>
+            <div class="item-desc">${item.description}</div>
+            ${soldOut
+              ? '<div class="sold-out-tag">Sold out</div>'
+              : `<div class="item-price">${CinemaFlo.formatRupees(item.price_paise)}</div>`}
+          </div>
+          ${soldOut ? '' : renderQtyControl(item.id, qty)}
+        </div>`;
+    }
+  }
+  container.innerHTML = html;
+}
+
+function renderQtyControl(itemId, qty) {
+  if (qty === 0) {
+    return `<button class="add-btn" onclick="addItem(${itemId})">Add</button>`;
+  }
+  return `
+    <div class="qty-control">
+      <button class="qty-btn" onclick="decItem(${itemId})">&minus;</button>
+      <span class="qty-value">${qty}</span>
+      <button class="qty-btn" onclick="addItem(${itemId})">+</button>
+    </div>`;
+}
+
+function addItem(itemId) {
+  const item = menu.find(i => i.id === itemId);
+  const current = cart[itemId] || 0;
+  if (current + 1 > item.quantity_available) {
+    CinemaFlo.toast('Not enough stock left', true);
+    return;
+  }
+  cart[itemId] = current + 1;
+  CinemaFlo.setCart(cart);
+  renderMenu();
+  updateCartBar();
+}
+
+function decItem(itemId) {
+  if (cart[itemId] > 1) {
+    cart[itemId]--;
+  } else {
+    delete cart[itemId];
+  }
+  CinemaFlo.setCart(cart);
+  renderMenu();
+  updateCartBar();
+}
+
+function updateCartBar() {
+  const bar = document.getElementById('cart-bar');
+  const count = CinemaFlo.cartCount(cart);
+  if (count === 0) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+  let total = 0;
+  for (const [id, qty] of Object.entries(cart)) {
+    const item = menu.find(i => i.id === parseInt(id));
+    if (item) total += item.price_paise * qty;
+  }
+  document.getElementById('cart-count').textContent = `${count} item${count > 1 ? 's' : ''}`;
+  document.getElementById('cart-total').textContent = CinemaFlo.formatRupees(total);
+}
+
+async function loadMenu() {
+  try {
+    menu = await CinemaFlo.getMenu();
+    renderMenu();
+    updateCartBar();
+  } catch (e) {
+    document.getElementById('menu-container').innerHTML =
+      '<div class="empty-state">Could not load menu. Retrying&hellip;</div>';
+  }
+}
+
+async function init() {
+  await ensureSession();
+  await loadMenu();
+  // Stock-sync: poll every 10s so sold-out items disappear promptly.
+  // Production upgrade path is the SSE stream at /api/stock/stream —
+  // see design doc section 6.2.
+  setInterval(loadMenu, 10000);
+}
+
+init();
+</script>
+</body>
+</html>

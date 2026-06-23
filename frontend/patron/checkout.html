@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinemaFlo — Checkout</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Checkout</h1>
+  <span class="seat-badge" id="seat-badge">Seat —</span>
+</header>
+
+<main>
+  <a class="back-link" href="cart.html">&larr; Back to cart</a>
+
+  <div class="category-label">Delivery seat</div>
+  <input type="text" class="text-input" id="seat-input" placeholder="Seat number, e.g. A12">
+
+  <div id="summary"></div>
+
+  <div class="category-label" style="margin-top:24px">Payment</div>
+  <div class="item-card">
+    <div class="item-info">
+      <div class="item-name">Mock payment</div>
+      <div class="item-desc">No real charge will be made. This simulates a successful payment for the assignment.</div>
+    </div>
+  </div>
+
+  <button class="btn-primary" id="pay-btn" onclick="placeOrder()">Pay &amp; place order</button>
+</main>
+
+<script src="app.js"></script>
+<script>
+let cart = CinemaFlo.getCart();
+let offerCode = sessionStorage.getItem('cf_offer_code') || null;
+
+async function init() {
+  const session = CinemaFlo.getSession();
+  if (!session) { window.location.href = 'index.html'; return; }
+  document.getElementById('seat-badge').textContent = `Seat ${session.seat_number}`;
+  document.getElementById('seat-input').value = session.seat_number;
+
+  if (Object.keys(cart).length === 0) {
+    window.location.href = 'index.html';
+    return;
+  }
+
+  try {
+    const items = Object.entries(cart).map(([id, qty]) => ({ item_id: parseInt(id), quantity: qty }));
+    const v = await CinemaFlo.validateCart(items, offerCode);
+    let html = `<div class="summary-row"><span>Subtotal</span><span>${CinemaFlo.formatRupees(v.subtotal_paise)}</span></div>`;
+    if (v.discount_paise > 0) {
+      html += `<div class="summary-row"><span>Discount</span><span>&minus;${CinemaFlo.formatRupees(v.discount_paise)}</span></div>`;
+    }
+    html += `<div class="summary-row total"><span>Total to pay</span><span>${CinemaFlo.formatRupees(v.total_paise)}</span></div>`;
+    document.getElementById('summary').innerHTML = html;
+  } catch (e) {
+    CinemaFlo.toast('Could not load order summary', true);
+  }
+}
+
+async function placeOrder() {
+  const btn = document.getElementById('pay-btn');
+  btn.disabled = true;
+  btn.textContent = 'Placing order…';
+
+  const seatNumber = document.getElementById('seat-input').value.trim();
+  if (!seatNumber) {
+    CinemaFlo.toast('Please enter a seat number', true);
+    btn.disabled = false;
+    btn.textContent = 'Pay & place order';
+    return;
+  }
+
+  try {
+    const items = Object.entries(cart).map(([id, qty]) => ({ item_id: parseInt(id), quantity: qty }));
+    const order = await CinemaFlo.checkout(items, offerCode);
+    CinemaFlo.clearCart();
+    sessionStorage.removeItem('cf_offer_code');
+    // Save order ID so patron can find it from menu page later
+    const orders = JSON.parse(localStorage.getItem('cf_my_orders') || '[]');
+    orders.unshift(order.id);
+    localStorage.setItem('cf_my_orders', JSON.stringify(orders.slice(0, 10)));
+    window.location.href = `order_status.html?id=${order.id}`;
+  } catch (e) {
+    if (e.status === 409) {
+      // Oversell prevention fired — one of the items sold out between
+      // cart validation and checkout. This is the expected, correct
+      // behaviour under contention, not a bug.
+      CinemaFlo.toast('Sorry — an item just sold out. Please review your cart.', true);
+      setTimeout(() => window.location.href = 'cart.html', 1800);
+    } else {
+      CinemaFlo.toast(e.message || 'Checkout failed', true);
+    }
+    btn.disabled = false;
+    btn.textContent = 'Pay & place order';
+  }
+}
+
+init();
+</script>
+</body>
+</html>

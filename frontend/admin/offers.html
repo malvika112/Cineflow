@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinemaFlo Admin — Offers</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>CinemaFlo Admin</h1>
+  <span style="font-size:12px; color:var(--text-dim)">Token-protected</span>
+</header>
+
+<nav class="tabs">
+  <a href="index.html">Menu &amp; stock</a>
+  <a href="orders.html">Orders</a>
+  <a href="offers.html" class="active">Offers</a>
+</nav>
+
+<main>
+  <div class="card">
+    <h3 style="margin-bottom:14px; font-size:15px;">Create offer</h3>
+    <div class="form-row"><label>Code</label><input class="text-input" id="off-code" placeholder="SAVE10"></div>
+    <div class="form-row">
+      <label>Discount type</label>
+      <select class="text-input" id="off-type">
+        <option value="percent">Percent (%)</option>
+        <option value="flat">Flat (paise)</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Discount value</label><input class="text-input" id="off-value" placeholder="10" type="number"></div>
+    <div class="form-row"><label>Min order (paise)</label><input class="text-input" id="off-min" placeholder="0" type="number"></div>
+    <div class="form-row"><label>Max total uses</label><input class="text-input" id="off-max" placeholder="1000" type="number"></div>
+    <div class="form-row"><label>Per-user cap</label><input class="text-input" id="off-cap" placeholder="1" type="number"></div>
+    <div class="form-row"><label>Valid from</label><input class="text-input" id="off-from" type="datetime-local"></div>
+    <div class="form-row"><label>Valid until</label><input class="text-input" id="off-until" type="datetime-local"></div>
+    <div class="form-row"><label>Stackable</label><input type="checkbox" id="off-stackable"></div>
+    <button onclick="createOffer()">Create offer</button>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:14px; font-size:15px;">Active offers</h3>
+    <table>
+      <thead>
+        <tr><th>Code</th><th>Discount</th><th>Min order</th><th>Caps</th><th>Window</th><th>Stackable</th></tr>
+      </thead>
+      <tbody id="offer-rows"></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="app.js"></script>
+<script>
+async function loadOffers() {
+  const offers = await Admin.req('/admin/offers');
+  const rows = offers.map(o => `
+    <tr>
+      <td><strong>${o.code}</strong></td>
+      <td>${o.discount_type === 'percent' ? o.discount_value + '%' : Admin.formatRupees(o.discount_value)}</td>
+      <td>${Admin.formatRupees(o.min_order_paise)}</td>
+      <td>${o.max_uses} total / ${o.per_user_cap} per user</td>
+      <td style="font-size:12px">${formatDate(o.valid_from)} &rarr; ${formatDate(o.valid_until)}</td>
+      <td>${o.stackable ? 'Yes' : 'No'}</td>
+    </tr>`).join('');
+  document.getElementById('offer-rows').innerHTML = rows || '<tr><td colspan="6" class="empty-state">No offers yet</td></tr>';
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString();
+}
+
+async function createOffer() {
+  const code = document.getElementById('off-code').value.trim();
+  const discount_type = document.getElementById('off-type').value;
+  const discount_value = parseInt(document.getElementById('off-value').value);
+  const min_order_paise = parseInt(document.getElementById('off-min').value) || 0;
+  const max_uses = parseInt(document.getElementById('off-max').value) || 1000;
+  const per_user_cap = parseInt(document.getElementById('off-cap').value) || 1;
+  const fromVal = document.getElementById('off-from').value;
+  const untilVal = document.getElementById('off-until').value;
+  const stackable = document.getElementById('off-stackable').checked;
+
+  if (!code || !discount_value || !fromVal || !untilVal) {
+    alert('Code, discount value, and validity window are required');
+    return;
+  }
+
+  await Admin.req('/admin/offers', {
+    method: 'POST',
+    body: JSON.stringify({
+      code, discount_type, discount_value, min_order_paise,
+      max_uses, per_user_cap,
+      valid_from: new Date(fromVal).toISOString(),
+      valid_until: new Date(untilVal).toISOString(),
+      stackable,
+    }),
+  });
+  loadOffers();
+}
+
+loadOffers();
+</script>
+</body>
+</html>
